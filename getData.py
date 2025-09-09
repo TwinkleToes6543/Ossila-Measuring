@@ -6,9 +6,11 @@ specCal = SpecCal()
 ossila = Ossila()
 
 while True:
-    voltage, current = ossila.measureVoltage()
-    wavelength, intensity = specCal.getWavelength()
+    devPower = ossila.measureVoltage()
+    sunPower = specCal.getWavelength()
 
-    print(f"v: {voltage}, c: {current}, w: {wavelength}, i: {intensity}")
+    with open("data.txt", "a") as f:
+        f.write(str(float(devPower / sunPower * 100)))
+
 
     time.sleep(10)
