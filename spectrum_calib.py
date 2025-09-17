@@ -10,7 +10,7 @@ class SpecCal():
     def getWavelength(self):
         try:
             wavelength, intensity = spec.normalize_spectrum()
-            return sum(intensity)
+            return (sum(intensity) / 100000)
         except KeyboardInterrupt:
             pass
 
