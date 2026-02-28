@@ -1,88 +1,69 @@
-from decimal import Decimal
-import time
-import xtralien
+import pandas as pd
 import numpy as np
+import csv
 
-class Ossila():
-    def measureVoltage(self):
-        port = "/dev/ttyACM0" # USB COM port number of the connected Source Measure Unit
-        channel = 'smu2'  # SMU channel to use
-        i_range = 1  # Current range to use, see manual for details
+# fileName = input("Enter the name of the wavelength file: ")
 
-        # Parameters are defined using the Decimal class to avoid floating point errors
-        start_v = Decimal('8.3')  # Sweep start voltage in volts
-        end_v = Decimal('-0.1')  # Sweep end voltage in volts
-        inc_v = Decimal('0.04')  # Sweep voltage increment in volts
-        power = []
-        voltages = []
-        currents = []
-        cellArea = 10.23
-        J = []
+# optical parameter
+fileName = "Sample"
+# ossila
+fileName2 = "2026-01-30-Ossila Pixel 1 (2)"
 
-        # Connect to the Source Measure Unit using USB
-        with xtralien.Device(port) as SMU:
-            # Set the current range for SMU 1
-            SMU[channel].set.range(i_range, response=0)
-            time.sleep(0.05)
-            # Turn on SMU 1
-            SMU[channel].set.enabled(True, response=0)
-            time.sleep(0.05)
+# time between ossila cycles(min), optical parameter cycles should be 60s
+ossilaCycle = 60
 
-            #Initialise the set voltage
-            set_v = start_v
-            # Loop through the voltages to measure
-            while set_v > end_v:
-                # Set voltage, measure voltage and current
-                # voltage, current = SMU[channel].oneshot(set_v)
-                result = SMU[channel].oneshot(set_v)
-                try:
-                    voltage, current = result[0]
-                    voltages.append(voltage)
-                    currents.append(current)
-                except:
-                    break
+op = pd.read_csv(f'{fileName}.csv', skiprows=14)
+sc = pd.read_csv(f'{fileName2}.csv')
 
-                # Get power
-                power.append((current * voltage) / 10.23)
+# Date (MM/dd/yyyy) ,Time of day (hh:mm:ss)
+time = []
 
-                # Increment the set voltage
-                set_v += inc_v
+# gives sun intensity
+sunIntensity = []
+for i in range(len(op)):
+    # mW/cm^2
+    x = op["Power (W)"].iloc[i] * 1000 / 0.785
+    time.append((op["Date (MM/dd/yyyy) "].iloc[i], op["Time of day (hh:mm:ss) "].iloc[i]))
 
-                
-            voltages = np.array(voltages, dtype=float).flatten()
-            currents = np.array(currents, dtype=float).flatten()
+    sunIntensity.append(x)
 
-            print("currents: ", currents)
-            print("voltages: ", voltages)
+# gives cell intensity
+cellIntensity = []
+for i in range(len(sc)):
+    # mW/cm^2
+    x = sc["Jsc (A.cm^-2)"].iloc[i] * sc["Voc (V)"].iloc[i] * sc["FF (%)"].iloc[i] / 100 * 1000
 
-            # calculates density
-            J = (currents / cellArea) * 1000  # mA/cm²
-            if np.mean(J) < 0:
-                J = -J
-                currents = -currents
+    print(abs(x))
 
-            # gets jsc(mA/cm2)
-            if np.any(voltages < 0) and np.any(voltages > 0):
-                jsc = np.interp(0, voltages, J)
-            else:
-                jsc = J[np.argmin(np.abs(voltages))]  # nearest to 0 V if no crossing
+    cellIntensity.append(abs(x))
 
-            # gets voc
-            if np.any(J < 0) and np.any(J > 0):
-                voc = np.interp(0, J, voltages)
-            else:
-                voc = voltages[np.argmin(np.abs(J))]  # nearest to 0 current if no crossing
 
-            # Get max power
-            mPower = max(power)
+data = [
+    ["Date (MM/dd/yyyy)", "Time of day (hh:mm:ss)", "Jsc(mA/cm^2)", "Voc(V)", "FF(%)", "Pin(mW/cm^2)", "Pce"]
+]
 
-            # Reset output voltage and turn off SMU 1
-            SMU[channel].set.voltage(0, response=0)
-            time.sleep(0.1)
-            SMU[channel].set.enabled(False, response=0)
+# averages data points of optical parameter measurments to get more accurate readings and gets true efficiency
+for i in range(len(cellIntensity)):
+    sunAverage = 0
+    count = 1
+    for j in range(count * ossilaCycle, count * ossilaCycle + ossilaCycle):
+        try:
+            sunAverage += sunIntensity[j]
+        except:
+            break
 
-            return {
-                "mPower" : mPower,
-                "jsc" : jsc,
-                "voc" : voc
-            }
+    count += 1
+    
+    sunAverage /= ossilaCycle
+
+    # pce
+    x = cellIntensity[i] / sunAverage * 100
+    data.append([time[count * ossilaCycle][0],time[count * ossilaCycle][1],
+                abs(sc["Jsc (A.cm^-2)"].iloc[i] * 1000), sc["Voc (V)"].iloc[i], sc["FF (%)"].iloc[i], 
+                sunAverage, x])
+
+csvFilePath = "EfficiencyMeasurements.csv"
+
+with open(csvFilePath, mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerows(data)
